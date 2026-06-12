@@ -232,7 +232,3 @@ autoforge/
 
 ---
 
-## ✍️ Author & License
-
-*   **Author:** Syed Asad ([syedasad108@gmail.com](mailto:syedasad108@gmail.com))
-*   **License:** Released under the [MIT License](LICENSE).
