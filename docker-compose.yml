@@ -1,0 +1,128 @@
+# ==============================================================================
+# AutoForge Platform Local Docker Orchestration (docker-compose.yml)
+# ==============================================================================
+# Co-locates and configures the local runtime stack for AutoForge:
+#   1. backend (FastAPI Ingestion & Analytics API)
+#   2. simulator (Factory Telemetry Simulator Daemon)
+#   3. frontend (React Dashboard Dashboard)
+#
+# Network: All services communicate inside a shared bridge network 'autoforge-network'.
+# AWS Services (Kinesis, Athena, S3, Glue) remain running natively in AWS.
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. FastAPI Ingestion & Analytics Backend API Service
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: autoforge-backend
+    ports:
+      # Exposes Ingestion API to host on port 8000
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Direct boto3 to resolve mounted AWS credentials and configuration
+      - AWS_SHARED_CREDENTIALS_FILE=/root/.aws/credentials
+      - AWS_CONFIG_FILE=/root/.aws/config
+      # Pass through standard AWS CLI/SDK shell environment variables if defined on host
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_DEFAULT_REGION
+      - AWS_REGION
+      - AWS_PROFILE
+    volumes:
+      # Bind-mount project root to enable live reloading of FastAPI codebase
+      - .:/app
+      # Mount host AWS directory to supply credentials securely (read-only)
+      - ~/.aws:/root/.aws:ro
+    healthcheck:
+      # HTTP liveness probe against FastAPI lightweight health check endpoint
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Changed from 'always' to preserve crash visibility during debugging
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 2. Factory Telemetry Simulator Service (boto3 Kinesis Stream Producer)
+  # ----------------------------------------------------------------------------
+  simulator:
+    build:
+      context: .
+      dockerfile: simulator/Dockerfile
+    container_name: autoforge-simulator
+    depends_on:
+      # Ensure simulator does not start until backend is healthy
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Direct boto3 to resolve mounted AWS credentials and configuration
+      - AWS_SHARED_CREDENTIALS_FILE=/root/.aws/credentials
+      - AWS_CONFIG_FILE=/root/.aws/config
+      # Pass through host AWS environment variables
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_DEFAULT_REGION
+      - AWS_REGION
+      - AWS_PROFILE
+    volumes:
+      # Bind-mount project root to enable live reloading and write local raw streams
+      - .:/app
+      # Mount host AWS directory to supply credentials securely (read-only)
+      - ~/.aws:/root/.aws:ro
+    healthcheck:
+      # Healthcheck tests if simulator is updating its heartbeat file on every tick
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(0 if os.path.exists('logs/simulator.heartbeat') and time.time() - os.stat('logs/simulator.heartbeat').st_mtime < 15 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Changed from 'always' to preserve crash visibility during debugging
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # 3. React Intelligence Dashboard Frontend Service (Vite Development Server)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: autoforge-frontend
+    ports:
+      # Exposes Vite React Dev Server to host on port 5173
+      - "5173:5173"
+    depends_on:
+      # Ensure frontend starts after backend API is ready
+      backend:
+        condition: service_healthy
+    volumes:
+      # Bind-mount frontend source files for hot-reloading
+      - ./frontend:/app
+      # Anonymous volume avoids overwriting Linux dependencies in container with host node_modules
+      - /app/node_modules
+    healthcheck:
+      # Verify Vite web service is answering requests using alpine-supplied wget
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Changed from 'always' to preserve crash visibility during debugging
+    restart: unless-stopped
+
+# Custom named bridge network to connect all local containers
+networks:
+  default:
+    name: autoforge-network

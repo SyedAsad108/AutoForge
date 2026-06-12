@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>README.md</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 800px; margin: 40px auto; padding: 0 2rem; line-height: 1.8; color: #333; }
+    h1,h2,h3,h4,h5,h6 { color: #111; margin: 1.5rem 0 0.5rem; }
+    h1 { font-size: 2rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+    h2 { font-size: 1.5rem; border-bottom: 1px solid #eee; padding-bottom: 0.2rem; }
+    a { color: #0366d6; }
+    code { background: #f6f8fa; padding: 0.1em 0.4em; border-radius: 3px; font-family: monospace; }
+    pre { background: #f6f8fa; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 3px solid #aaa; padding: 0.5rem 1rem; color: #555; margin: 1rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th,td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; }
+    th { background: #f3f3f3; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body><h1>AutoForge Smart Manufacturing Plant</h1>
+<blockquote>
+<p><strong>Industry 4.0 Industrial Intelligence Platform -- Phases 1, 2 &amp; 3</strong></p>
+</blockquote>
+<p>A cloud-native real-time telemetry streaming platform that simulates a realistic 24-machine automotive manufacturing plant. The system generates stateful, correlated, anomaly-capable industrial telemetry at 1 Hz per machine, and exposes a production-style FastAPI ingestion gateway for telemetry validation, enrichment, buffering, and persistence.</p>
+<hr>
+<h2>Architecture Overview</h2>
+<pre><code>                        PHASE 1                      PHASE 2                              PHASE 3
+              +-----------------------+    +--------------------------+    +-------------------------------+
+              |   Factory Simulator   |    |  Streaming Engine        |    |  FastAPI Ingestion API        |
+              |  24 machines (8 types)|    |  Correlation Engine      |    |                               |
+              |  Stateful behaviour   |---&gt;|  Degradation Engine      |---&gt;|  POST /telemetry              |
+              |  Anomaly injection    |    |  Anomaly Cascade Engine  |    |  POST /telemetry/batch        |
+              |  Telemetry generation |    |  EventQueue + Serializer |    |  GET  /health                 |
+              +-----------------------+    +------------+-------------+    |  GET  /ready                  |
+                                                        |                  |  GET  /metrics                |
+                                              NDJSON persistence           +---------------+---------------+
+                                              data/raw_stream/                             |
+                                                                              +------------v-------------+
+                                                                              |   Ingestion Pipeline     |
+                                                                              |   ValidationEngine       |
+                                                                              |   EnrichmentEngine       |
+                                                                              |   BufferingEngine        |
+                                                                              |   RetryEngine            |
+                                                                              +------------+-------------+
+                                                                                           |
+                                                                              +------------v-------------+
+                                                                              |   ProducerInterface      |
+                                                                              |   LocalProducer (NDJSON) |
+                                                                              |   data/ingestion/        |
+                                                                              +--------------------------+
+</code></pre>
+<hr>
+<h2>Phase 3 -- Backend Ingestion API</h2>
+<h3>Ingestion Flow</h3>
+<pre><code>HTTP Request --&gt; API Key Check --&gt; Pydantic Schema Validation --&gt; Range Validation
+                                                                        |
+                                                           +------------v-----------+
+                                                           | Enrichment Engine      |
+                                                           | + ingestion timestamp  |
+                                                           | + request ID           |
+                                                           | + backend node ID      |
+                                                           | + schema version       |
+                                                           +------------+-----------+
+                                                                        |
+                                                           +------------v-----------+
+                                                           | Async Buffering Queue  |
+                                                           | (bounded, overflow-    |
+                                                           |  evicting, batched)    |
+                                                           +------------+-----------+
+                                                                        |
+                                                           +------------v-----------+
+                                                           | Producer (Local NDJSON)|
+                                                           | data/ingestion/        |
+                                                           | date-partitioned       |
+                                                           | time-rotated files     |
+                                                           +-----------------------+
+</code></pre>
+<h3>API Endpoints</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>Auth</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>POST</td>
+<td><code>/telemetry</code></td>
+<td>Ingest single telemetry event</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/telemetry/batch</code></td>
+<td>Ingest batch of events</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/health</code></td>
+<td>Service health + uptime</td>
+<td>No</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/ready</code></td>
+<td>Kubernetes readiness probe</td>
+<td>No</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/metrics</code></td>
+<td>Operational ingestion metrics</td>
+<td>No</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/</code></td>
+<td>API root / docs link</td>
+<td>No</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/docs</code></td>
+<td>Interactive Swagger docs</td>
+<td>No</td>
+</tr>
+</tbody></table>
+<h3>Validation Pipeline</h3>
+<p><strong>Layer 1 -- Schema Validation (Pydantic v2)</strong></p>
+<ul>
+<li>Required fields, types, nested telemetry structure</li>
+<li>Enum enforcement for <code>machine_type</code>, <code>status</code>, <code>anomaly_type</code></li>
+<li>Severity/degradation bounds (0.0--1.0)</li>
+</ul>
+<p><strong>Layer 2 -- Range Validation (ValidationEngine)</strong></p>
+<ul>
+<li>Per-machine-type telemetry field bounds</li>
+<li>Examples: conveyor RPM 0--5000, CNC tool_wear 0--100%, temperature -10--250 C</li>
+</ul>
+<h3>Enrichment</h3>
+<p>Every accepted event receives server-side metadata:</p>
+<pre><code class="language-json">{
+  &quot;metadata&quot;: {
+    &quot;ingested_at&quot;: &quot;2026-04-26T12:00:01Z&quot;,
+    &quot;request_id&quot;: &quot;req-uuid-here&quot;,
+    &quot;backend_node&quot;: &quot;ingestion-node-01&quot;,
+    &quot;ingestion_source&quot;: &quot;api&quot;,
+    &quot;schema_version&quot;: &quot;v1&quot;
+  }
+}
+</code></pre>
+<h3>Producer Abstraction</h3>
+<pre><code class="language-python">class ProducerInterface(abc.ABC):
+    async def publish_event(event) -&gt; bool
+    async def publish_batch(events) -&gt; int
+    async def health_check() -&gt; bool
+</code></pre>
+<p><strong>LocalProducer</strong> -- writes to date-partitioned NDJSON files under <code>data/ingestion/</code>.
+Future <strong>KinesisProducer</strong> will implement the same interface.</p>
+<h3>Observability</h3>
+<ul>
+<li>Structured logging (console + rotating file)</li>
+<li>Request ID middleware (UUID per request)</li>
+<li>Request timing middleware (latency tracking)</li>
+<li>Metrics endpoint: throughput, latency, queue depth, anomaly count, validation failures</li>
+</ul>
+<hr>
+<h2>API Examples</h2>
+<h3>Ingest a Telemetry Event</h3>
+<pre><code class="language-bash">curl -X POST http://localhost:8000/telemetry \
+  -H &quot;Content-Type: application/json&quot; \
+  -H &quot;X-API-Key: autoforge-dev-key-2026&quot; \
+  -d &#39;{
+    &quot;event_id&quot;: &quot;d145b4bf-7f7f-4b29-9178-baaeeae48cfa&quot;,
+    &quot;machine_id&quot;: &quot;M008&quot;,
+    &quot;machine_type&quot;: &quot;cnc_machine&quot;,
+    &quot;factory_id&quot;: &quot;AUTOFORGE_01&quot;,
+    &quot;timestamp&quot;: &quot;2026-04-26T12:00:00Z&quot;,
+    &quot;status&quot;: &quot;warning&quot;,
+    &quot;telemetry&quot;: {
+      &quot;spindle_speed&quot;: 8042,
+      &quot;temperature&quot;: 49.3,
+      &quot;tool_wear&quot;: 52.0,
+      &quot;vibration&quot;: 2.4
+    },
+    &quot;anomaly_detected&quot;: true,
+    &quot;anomaly_type&quot;: &quot;excessive_tool_wear&quot;,
+    &quot;anomaly_severity&quot;: 0.38,
+    &quot;degradation_level&quot;: 0.12
+  }&#39;
+</code></pre>
+<p><strong>Response (200):</strong></p>
+<pre><code class="language-json">{
+  &quot;status&quot;: &quot;accepted&quot;,
+  &quot;event_id&quot;: &quot;d145b4bf-7f7f-4b29-9178-baaeeae48cfa&quot;,
+  &quot;ingestion_timestamp&quot;: &quot;2026-04-26T12:00:01Z&quot;,
+  &quot;pipeline_status&quot;: &quot;buffered&quot;
+}
+</code></pre>
+<h3>Rejected Event (422)</h3>
+<pre><code class="language-json">{
+  &quot;status&quot;: &quot;rejected&quot;,
+  &quot;event_id&quot;: &quot;bad-uuid&quot;,
+  &quot;errors&quot;: [
+    {&quot;field&quot;: &quot;rpm&quot;, &quot;message&quot;: &quot;Value 99999 outside range [0, 5000]&quot;},
+    {&quot;field&quot;: &quot;temperature&quot;, &quot;message&quot;: &quot;Value -500 outside range [-10, 250]&quot;}
+  ]
+}
+</code></pre>
+<h3>Check Health</h3>
+<pre><code class="language-bash">curl http://localhost:8000/health
+</code></pre>
+<pre><code class="language-json">{
+  &quot;status&quot;: &quot;ok&quot;,
+  &quot;version&quot;: &quot;0.3.0&quot;,
+  &quot;uptime_seconds&quot;: 142.5,
+  &quot;ingestion_queue_depth&quot;: 0,
+  &quot;throughput_events_per_sec&quot;: 24.0,
+  &quot;backend_node&quot;: &quot;ingestion-node-01&quot;
+}
+</code></pre>
+<h3>Check Metrics</h3>
+<pre><code class="language-bash">curl http://localhost:8000/metrics
+</code></pre>
+<pre><code class="language-json">{
+  &quot;total_events_ingested&quot;: 3420,
+  &quot;events_per_second&quot;: 24.0,
+  &quot;failed_validations&quot;: 3,
+  &quot;active_machine_ids&quot;: 24,
+  &quot;queue_depth&quot;: 0,
+  &quot;anomaly_event_count&quot;: 128,
+  &quot;avg_ingestion_latency_ms&quot;: 0.071
+}
+</code></pre>
+<hr>
+<h2>Machine Categories</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Machine Type</th>
+<th>Telemetry Fields</th>
+<th>Anomalies</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4</td>
+<td>Conveyor Motor</td>
+<td>rpm, temperature, power_consumption</td>
+<td>overheating, unstable_rpm</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Hydraulic Press</td>
+<td>hydraulic_pressure, temperature, cycle_time</td>
+<td>pressure_drop, overheating</td>
+</tr>
+<tr>
+<td>3</td>
+<td>CNC Machine</td>
+<td>spindle_speed, temperature, tool_wear, vibration</td>
+<td>excessive_tool_wear, vibration</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Robotic Arm</td>
+<td>joint_load, movement_delay, motor_temperature, accuracy</td>
+<td>motor_overheating, delay_spike</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Industrial Turbine</td>
+<td>rpm, vibration, temperature, energy_output</td>
+<td>unstable_rpm, vibration</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Cooling System</td>
+<td>coolant_flow_rate, temperature, pressure</td>
+<td>pressure_fluctuation, coolant_loss</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Welding Unit</td>
+<td>arc_stability, temperature, energy_usage</td>
+<td>unstable_arc, energy_spike</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Assembly Robot</td>
+<td>task_completion_rate, alignment_accuracy, cycle_efficiency, temperature</td>
+<td>alignment_degradation, efficiency_drop</td>
+</tr>
+</tbody></table>
+<p><strong>Total: 24 machines</strong></p>
+<hr>
+<h2>Project Structure</h2>
+<pre><code>autoforge/
+├── backend/                          # Phase 3 -- Ingestion API
+│   ├── api/
+│   │   ├── routes/
+│   │   │   ├── telemetry.py          # POST /telemetry, /telemetry/batch
+│   │   │   ├── health.py             # GET /health, /ready
+│   │   │   └── metrics.py            # GET /metrics
+│   │   └── dependencies.py           # DI container
+│   ├── core/
+│   │   ├── config.py                 # Env-based settings
+│   │   ├── constants.py              # Valid types, ranges
+│   │   ├── logger.py                 # Structured logging
+│   │   └── security.py               # API key validation
+│   ├── ingestion/
+│   │   ├── ingestion_service.py      # Pipeline orchestrator
+│   │   ├── validation_engine.py      # Range validation
+│   │   ├── enrichment_engine.py      # Metadata stamping
+│   │   ├── producer_interface.py     # Abstract producer
+│   │   ├── local_producer.py         # NDJSON persistence
+│   │   ├── buffering_engine.py       # Async bounded queue
+│   │   └── retry_engine.py           # Exponential backoff
+│   ├── models/
+│   │   ├── telemetry_models.py       # Pydantic v2 event models
+│   │   ├── response_models.py        # API response schemas
+│   │   └── validation_models.py      # Internal validation result
+│   ├── middleware/
+│   │   ├── request_id.py             # UUID per request
+│   │   ├── logging_middleware.py     # Request timing
+│   │   └── exception_handlers.py     # Global error handling
+│   ├── services/
+│   │   ├── telemetry_service.py      # Telemetry route facade
+│   │   ├── health_service.py         # Health data provider
+│   │   └── metrics_service.py        # Metrics aggregator
+│   ├── tests/
+│   │   └── test_backend.py           # 19 tests
+│   ├── main.py                       # FastAPI app entry point
+│   └── requirements.txt
+├── simulator/                         # Phases 1 &amp; 2
+│   ├── machines/                      # 8 machine types
+│   ├── telemetry/                     # Correlation, degradation, anomaly, metrics engines
+│   ├── streaming/                     # Streaming engine, event queue, serializer, replay
+│   ├── storage/                       # NDJSON writer, rotation, replay loader
+│   ├── factory/                       # Factory simulator orchestrator
+│   ├── utils/                         # Config, logging, helpers
+│   └── main.py                        # Simulator entry point
+├── tests/                             # Phase 1+2 tests (30 tests)
+├── data/
+│   ├── raw_stream/                    # Simulator NDJSON output
+│   └── ingestion/                     # Backend NDJSON output
+├── logs/
+├── .env.example
+├── requirements.txt
+└── README.md
+</code></pre>
+<hr>
+<h2>Setup Instructions</h2>
+<h3>Prerequisites</h3>
+<ul>
+<li>Python 3.11+</li>
+</ul>
+<h3>Install</h3>
+<pre><code class="language-bash">cd autoforge
+
+# Simulator dependencies
+pip install -r requirements.txt
+
+# Backend dependencies
+pip install -r backend/requirements.txt
+</code></pre>
+<h3>Configure</h3>
+<pre><code class="language-bash">cp .env.example .env
+# Edit .env to customise intervals, API key, etc.
+</code></pre>
+<hr>
+<h2>Running</h2>
+<h3>Start the Ingestion API</h3>
+<pre><code class="language-bash">uvicorn backend.main:app --reload
+</code></pre>
+<p>The API starts on <code>http://localhost:8000</code> with interactive Swagger docs at <code>/docs</code>.</p>
+<h3>Start the Factory Simulator</h3>
+<pre><code class="language-bash">python simulator/main.py
+</code></pre>
+<p>Emits telemetry to stdout and persists NDJSON to <code>data/raw_stream/</code>.</p>
+<h3>Run All Tests</h3>
+<pre><code class="language-bash"># Phase 1+2 tests
+python -m pytest tests/ -v
+
+# Phase 3 backend tests
+python -m pytest backend/tests/ -v
+</code></pre>
+<hr>
+<h2>Expected Terminal Output (Backend)</h2>
+<pre><code>[STARTUP] AutoForge Ingestion API v0.3.0 node=ingestion-node-01
+[BUFFER] Drain loop started
+POST /telemetry status=200 latency=1.3ms req_id=1b3c3328-...
+[INGESTION] Event d145b4bf-... from M008 accepted
+[PERSISTENCE] Opened ingestion file: data/ingestion/2026-04-26/ingestion_12-00.ndjson
+[VALIDATION] Event test-bad from M001 failed range checks: [rpm: 99999 outside [0, 5000]]
+POST /telemetry status=422 latency=3.0ms req_id=56ab59cb-...
+GET /metrics status=200 latency=1.2ms
+GET /health status=200 latency=1.1ms
+</code></pre>
+<hr>
+<h2>Security</h2>
+<ul>
+<li><strong>API Key</strong>: All telemetry endpoints require <code>X-API-Key</code> header</li>
+<li><strong>CORS</strong>: Configurable origins via <code>CORS_ORIGINS</code> env var</li>
+<li><strong>Request IDs</strong>: Every request gets a UUID for traceability</li>
+<li>Default dev key: <code>autoforge-dev-key-2026</code> (change in production)</li>
+</ul>
+<hr>
+<h2>Performance</h2>
+<ul>
+<li><strong>Async throughout</strong>: FastAPI + asyncio event loop, no blocking I/O</li>
+<li><strong>Bounded buffer</strong>: Configurable 10K-event queue with overflow eviction</li>
+<li><strong>Batched persistence</strong>: Drain loop processes up to 100 events per cycle</li>
+<li><strong>Low latency</strong>: ~0.07ms avg ingestion latency per event locally</li>
+<li><strong>Target</strong>: 500+ events/sec on standard hardware</li>
+</ul>
+<hr>
+<h2>Future Roadmap</h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4</td>
+<td>Cloud Streaming: AWS Kinesis producer, S3 data lake</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Serverless Processing: Lambda consumers, DynamoDB</td>
+</tr>
+<tr>
+<td>6</td>
+<td>React Dashboard: Live monitoring, anomaly alerts</td>
+</tr>
+<tr>
+<td>7</td>
+<td>ML Pipeline: Predictive maintenance models</td>
+</tr>
+</tbody></table>
+</body>
+</html>

@@ -1,0 +1,66 @@
+# AutoForge Smart Manufacturing Plant -- .gitignore
+
+# Environment Config
+.env
+.env*.local
+
+# Local Logs & Run Data
+logs/
+*.log
+simulator.heartbeat
+
+# Datasets & Ingestion Streams
+data/telemetry_data.csv
+data/raw_stream/
+data/ingestion/
+
+# Python Build & Test Outputs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+htmlcov/
+.tox/
+.coverage
+.cache
+.ipynb_checkpoints/
+backend/.pytest_cache/
+tests/.pytest_cache/
+simulator/__pycache__/
+backend/__pycache__/
+tests/__pycache__/
+lambda/validator/__pycache__/
+lambda/glue_trigger/__pycache__/
+lambda/validator/diagnostics_engine/__pycache__/
+
+# Frontend Node Modules & Production Builds
+frontend/node_modules/
+frontend/dist/
+frontend/.svelte-kit/
+frontend/.next/
+frontend/build/
+
+# Terraform Infrastructure Outputs
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/tfplan
+infra/.build/
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini

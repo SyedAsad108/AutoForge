@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>athena_benchmark_report.md</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 800px; margin: 40px auto; padding: 0 2rem; line-height: 1.8; color: #333; }
+    h1,h2,h3,h4,h5,h6 { color: #111; margin: 1.5rem 0 0.5rem; }
+    h1 { font-size: 2rem; border-bottom: 2px solid #ddd; padding-bottom: 0.3rem; }
+    h2 { font-size: 1.5rem; border-bottom: 1px solid #eee; padding-bottom: 0.2rem; }
+    a { color: #0366d6; }
+    code { background: #f6f8fa; padding: 0.1em 0.4em; border-radius: 3px; font-family: monospace; }
+    pre { background: #f6f8fa; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 3px solid #aaa; padding: 0.5rem 1rem; color: #555; margin: 1rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th,td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; }
+    th { background: #f3f3f3; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body><h1>AutoForge Smart Manufacturing Analytics � Athena Cost &amp; Performance Benchmark Report</h1>
+<p>This document records the cost and performance benchmarking of the Athena Analytics Layer, demonstrating execution efficiency, data scans, and query partition pruning benefits.</p>
+<h2>Cost Visibility &amp; Billing Model</h2>
+<p>Athena is billed on a decimal TB scale at <strong>$5.00 per TB scanned</strong> ($0.000000000005 per byte), subject to a <strong>10MB minimum charge per query</strong> ($0.00000005) to account for metadata overhead.</p>
+<hr>
+<h2>1. Summary of Benchmark Runs</h2>
+<table>
+<thead>
+<tr>
+<th align="left">Query Label</th>
+<th align="center">Execution Time (ms)</th>
+<th align="center">Data Scanned (bytes)</th>
+<th align="center">Billed Volume (bytes)</th>
+<th align="center">Est. Cost (USD)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">MSCK REPAIR TABLE telemetry_curated</td>
+<td align="center">934</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Deploy View: autoforge_analytics.machine_health_view</td>
+<td align="center">366</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Deploy View: autoforge_analytics.anomaly_summary_view</td>
+<td align="center">324</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Deploy View: autoforge_analytics.daily_factory_summary_view</td>
+<td align="center">287</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Required Query: Machine Count by Type</td>
+<td align="center">1023</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Required Query: Machine Health (Avg Temperature)</td>
+<td align="center">1366</td>
+<td align="center">127,842</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Required Query: Anomaly Trends</td>
+<td align="center">693</td>
+<td align="center">16,357</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Analytical Query: Most Active Machines</td>
+<td align="center">691</td>
+<td align="center">46,321</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Analytical Query: Average Temperature by Machine Type</td>
+<td align="center">720</td>
+<td align="center">81,521</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Analytical Query: Highest Anomaly Rate Machines</td>
+<td align="center">771</td>
+<td align="center">67,958</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Analytical Query: Daily Telemetry Volume</td>
+<td align="center">1094</td>
+<td align="center">0</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Analytical Query: Energy Consumption by Machine Type</td>
+<td align="center">680</td>
+<td align="center">88,198</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Query View: machine_health_view</td>
+<td align="center">975</td>
+<td align="center">210,584</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Query View: anomaly_summary_view</td>
+<td align="center">1039</td>
+<td align="center">29,293</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Query View: daily_factory_summary_view</td>
+<td align="center">1136</td>
+<td align="center">129,063</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Full Table Scan Query</td>
+<td align="center">733</td>
+<td align="center">81,521</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+<tr>
+<td align="left">Pruned Partition Query</td>
+<td align="center">542</td>
+<td align="center">10,714</td>
+<td align="center">10,000,000</td>
+<td align="center">$0.00005000</td>
+</tr>
+</tbody></table>
+<hr>
+<h3>Partition Pruning Optimization Gains</h3>
+<ul>
+<li><strong>Full Table Scan</strong>: <code>81,521 bytes</code> scanned</li>
+<li><strong>Pruned Partition Scan (Single-Day &amp; Machine Type)</strong>: <code>10,714 bytes</code> scanned</li>
+<li><strong>Data Reduction</strong>: <strong>86.86% less data scanned</strong></li>
+<li><strong>Optimization Summary</strong>: Partitioning by <code>machine_type</code>, <code>year</code>, <code>month</code>, and <code>day</code> successfully filters out irrelevant directories at the S3 bucket level. In production, this directly translates to <strong>86.86% cost savings</strong> and faster query runtimes.</li>
+</ul>
+<hr>
+<h2>2. Detailed Query Library Definitions &amp; Sample Outputs</h2>
+<h3>MSCK REPAIR TABLE telemetry_curated</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">MSCK REPAIR TABLE telemetry_curated;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>934 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Deploy View: autoforge_analytics.machine_health_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">CREATE OR REPLACE VIEW autoforge_analytics.machine_health_view AS
+SELECT machine_id,
+       machine_type,
+       COUNT(*) AS total_events,
+       SUM(CASE WHEN anomaly_detected = true THEN 1 ELSE 0 END) AS anomaly_events,
+       (CAST(SUM(CASE WHEN anomaly_detected = true THEN 1 ELSE 0 END) AS DOUBLE) / COUNT(*)) * 100.0 AS anomaly_rate_percent,
+       AVG(temperature) AS avg_temperature,
+       MAX(degradation_level) AS max_degradation_level
+FROM autoforge_analytics.telemetry_curated
+GROUP BY machine_id, machine_type;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>366 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Deploy View: autoforge_analytics.anomaly_summary_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">CREATE OR REPLACE VIEW autoforge_analytics.anomaly_summary_view AS
+SELECT anomaly_type,
+       machine_type,
+       COUNT(*) AS anomaly_count,
+       AVG(anomaly_severity) AS avg_anomaly_severity
+FROM autoforge_analytics.telemetry_curated
+WHERE anomaly_detected = true
+GROUP BY anomaly_type, machine_type;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>324 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Deploy View: autoforge_analytics.daily_factory_summary_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">CREATE OR REPLACE VIEW autoforge_analytics.daily_factory_summary_view AS
+SELECT year,
+       month,
+       day,
+       COUNT(*) AS total_events,
+       COUNT(DISTINCT machine_id) AS active_machines,
+       SUM(CASE WHEN anomaly_detected = true THEN 1 ELSE 0 END) AS total_anomalies,
+       AVG(degradation_level) AS avg_degradation_level
+FROM autoforge_analytics.telemetry_curated
+GROUP BY year, month, day;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>287 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Required Query: Machine Count by Type</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_type, COUNT(*) AS count
+    FROM telemetry_curated
+    GROUP BY machine_type
+    ORDER BY count DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>1023 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Required Query: Machine Health (Avg Temperature)</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_id,
+           AVG(CAST(temperature AS DOUBLE)) AS avg_temp
+    FROM telemetry_curated
+    GROUP BY machine_id
+    ORDER BY avg_temp DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>1366 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>127,842 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Required Query: Anomaly Trends</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT anomaly_type,
+           COUNT(*) AS anomaly_count
+    FROM telemetry_curated
+    WHERE anomaly_detected = true
+    GROUP BY anomaly_type
+    ORDER BY anomaly_count DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>693 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>16,357 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Analytical Query: Most Active Machines</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_id,
+           machine_type,
+           COUNT(*) AS event_count
+    FROM telemetry_curated
+    GROUP BY machine_id, machine_type
+    ORDER BY event_count DESC
+    LIMIT 5;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>691 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>46,321 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Analytical Query: Average Temperature by Machine Type</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_type,
+           AVG(temperature) AS avg_temp
+    FROM telemetry_curated
+    GROUP BY machine_type
+    ORDER BY avg_temp DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>720 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>81,521 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Analytical Query: Highest Anomaly Rate Machines</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_id,
+           machine_type,
+           COUNT(*) AS total_events,
+           SUM(CASE WHEN anomaly_detected = true THEN 1 ELSE 0 END) AS anomaly_events,
+           (CAST(SUM(CASE WHEN anomaly_detected = true THEN 1 ELSE 0 END) AS DOUBLE) / COUNT(*)) * 100.0 AS anomaly_rate_percent
+    FROM telemetry_curated
+    GROUP BY machine_id, machine_type
+    ORDER BY anomaly_rate_percent DESC, total_events DESC
+    LIMIT 5;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>771 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>67,958 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Analytical Query: Daily Telemetry Volume</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT year,
+           month,
+           day,
+           COUNT(*) AS daily_volume
+    FROM telemetry_curated
+    GROUP BY year, month, day
+    ORDER BY year DESC, month DESC, day DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>1094 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>0 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Analytical Query: Energy Consumption by Machine Type</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT machine_type,
+           SUM(COALESCE(power_consumption, 0.0) + COALESCE(energy_usage, 0.0) + COALESCE(energy_output, 0.0)) AS total_energy_units
+    FROM telemetry_curated
+    GROUP BY machine_type
+    ORDER BY total_energy_units DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>680 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>88,198 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Query View: machine_health_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT * FROM machine_health_view ORDER BY anomaly_rate_percent DESC LIMIT 5;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>975 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>210,584 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Query View: anomaly_summary_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT * FROM anomaly_summary_view ORDER BY anomaly_count DESC LIMIT 5;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>1039 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>29,293 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Query View: daily_factory_summary_view</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT * FROM daily_factory_summary_view ORDER BY total_events DESC;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>1136 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>129,063 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Full Table Scan Query</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT SUM(temperature) FROM telemetry_curated;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>733 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>81,521 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+<h3>Pruned Partition Query</h3>
+<p><strong>SQL Statement</strong>:</p>
+<pre><code class="language-sql">SELECT SUM(temperature) FROM telemetry_curated
+    WHERE machine_type = &#39;assembly_robot&#39;
+      AND year = 2026
+      AND month = 6
+      AND day = 3;
+</code></pre>
+<ul>
+<li><strong>Engine Execution Time</strong>: <code>542 ms</code></li>
+<li><strong>Actual Data Scanned</strong>: <code>10,714 bytes</code></li>
+<li><strong>Estimated Query Cost</strong>: <code>$0.00005000</code></li>
+</ul>
+</body>
+</html>
