@@ -111,10 +111,7 @@ graph TD
 
 ---
 
-## 🚀 Resume Impact: Measurable Accomplishments
-
-Hiring managers and technical recruiters can verify the following skills demonstrated in this repository:
-
+## Measurable Accomplishments
 *   **Built high-throughput AWS data pipeline:** Configured a real-time ingestion stream via **AWS Kinesis** and **Lambda** capable of consuming, validating, and routing telemetry records with sub-120ms execution times.
 *   **Implemented serverless analytical database:** Provisioned a serverless database catalog using **AWS Glue** and **Amazon Athena**, exposing a massive data lake for on-demand SQL queries without host provisioning fees.
 *   **Reduced query costs by up to 85%:** Integrated a **Glue PySpark job** that compresses raw JSON into snappy Parquet format and partitions data, reducing database scan sizes from gigabytes to kilobytes.
